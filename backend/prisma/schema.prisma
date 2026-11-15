@@ -1,0 +1,260 @@
+// FlowForge Enterprise Production Prisma Schema
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  EMPLOYEE
+  HR
+  FINANCE
+  DEPARTMENT_HEAD
+}
+
+enum RequestStatus {
+  DRAFT
+  SUBMITTED
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  COMPLETED
+  CANCELLED
+  RETURNED_FOR_CORRECTION
+  AWAITING_APPROVER_ASSIGNMENT
+}
+
+enum WorkflowStatus {
+  ACTIVE
+  INACTIVE
+  DRAFT
+}
+
+enum ApprovalAction {
+  APPROVED
+  REJECTED
+  RETURNED_FOR_CORRECTION
+}
+
+enum DocumentStatus {
+  PROCESSING
+  VERIFIED
+  REVIEW_REQUIRED
+  VERIFICATION_FAILED
+  REJECTED
+}
+
+model Department {
+  id        String     @id @default(uuid())
+  name      String     @unique
+  code      String     @unique
+  managerId String?
+  manager   User?      @relation("DepartmentManager", fields: [managerId], references: [id], onDelete: SetNull)
+  users     User[]     @relation("DepartmentMembers")
+  workflows Workflow[] @relation("DepartmentWorkflows")
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@map("departments")
+}
+
+model User {
+  id                  String            @id @default(uuid())
+  name                String
+  email               String            @unique
+  passwordHash        String
+  role                Role              @default(EMPLOYEE)
+  status              String            @default("ACTIVE") // ACTIVE, SUSPENDED
+  departmentId        String?
+  department          Department?       @relation("DepartmentMembers", fields: [departmentId], references: [id], onDelete: SetNull)
+  managerId           String?
+  manager             User?             @relation("DirectReports", fields: [managerId], references: [id], onDelete: SetNull)
+  directReports       User[]            @relation("DirectReports")
+  managedDepartments  Department[]      @relation("DepartmentManager")
+  createdWorkflows    Workflow[]        @relation("WorkflowCreator")
+  assignedSteps       WorkflowStep[]    @relation("AssignedStepApprover")
+  requests            Request[]         @relation("Requester")
+  approvals           Approval[]        @relation("Approver")
+  auditLogs           AuditLog[]        @relation("UserAuditLogs")
+  uploadedDocuments   RequestDocument[] @relation("DocumentUploader")
+  reviewedDocuments   RequestDocument[] @relation("DocumentReviewer")
+  notifications       Notification[]    @relation("UserNotifications")
+  sessions            Session[]         @relation("UserSessions")
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  @@index([role])
+  @@index([departmentId])
+  @@index([managerId])
+  @@map("users")
+}
+
+model Workflow {
+  id                    String         @id @default(uuid())
+  name                  String
+  description           String?
+  type                  String         // e.g. "LEAVE", "PURCHASE", "EXPENSE"
+  status                WorkflowStatus @default(ACTIVE)
+  departmentId          String?
+  department            Department?    @relation("DepartmentWorkflows", fields: [departmentId], references: [id], onDelete: SetNull)
+  requiresDocuments     Boolean        @default(false)
+  requiredDocumentTypes String[]       @default([])
+  amountThreshold       Float?
+  createdById           String
+  createdBy             User           @relation("WorkflowCreator", fields: [createdById], references: [id])
+  steps                 WorkflowStep[]
+  requests              Request[]
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+
+  @@index([type])
+  @@index([status])
+  @@map("workflows")
+}
+
+model WorkflowStep {
+  id                         String     @id @default(uuid())
+  workflowId                 String
+  workflow                   Workflow   @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  name                       String
+  order                      Int
+  approverRole               Role
+  approverId                 String?
+  approver                   User?      @relation("AssignedStepApprover", fields: [approverId], references: [id], onDelete: SetNull)
+  useDirectManager           Boolean    @default(false)
+  requiresVerificationPassed Boolean    @default(false)
+  requests                   Request[]  @relation("CurrentStepRequests")
+  approvals                  Approval[]
+  createdAt                  DateTime   @default(now())
+  updatedAt                  DateTime   @updatedAt
+
+  @@unique([workflowId, order])
+  @@index([approverRole])
+  @@map("workflow_steps")
+}
+
+model Request {
+  id            String            @id @default(uuid())
+  title         String
+  description   String?
+  type          String            // "LEAVE", "PURCHASE", "EXPENSE"
+  requesterId   String
+  requester     User              @relation("Requester", fields: [requesterId], references: [id], onDelete: Cascade)
+  workflowId    String
+  workflow      Workflow          @relation(fields: [workflowId], references: [id], onDelete: Restrict)
+  currentStepId String?
+  currentStep   WorkflowStep?     @relation("CurrentStepRequests", fields: [currentStepId], references: [id], onDelete: SetNull)
+  status        RequestStatus     @default(SUBMITTED)
+  data          Json              @default("{}")
+  documents     RequestDocument[]
+  approvals     Approval[]
+  auditLogs     AuditLog[]        @relation("RequestAuditLogs")
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@index([requesterId])
+  @@index([status])
+  @@index([workflowId])
+  @@index([createdAt])
+  @@map("requests")
+}
+
+model RequestDocument {
+  id                 String         @id @default(uuid())
+  requestId          String
+  request            Request        @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  uploaderId         String
+  uploader           User           @relation("DocumentUploader", fields: [uploaderId], references: [id], onDelete: Restrict)
+  fileName           String
+  storagePath        String
+  fileSize           Int
+  mimeType           String
+  fileHash           String         // SHA-256 for duplicate detection
+  documentType       String         // e.g. "RECEIPT", "INVOICE", "MEDICAL_CERTIFICATE"
+  status             DocumentStatus @default(PROCESSING)
+  ocrExtracted       Json?          // structured extracted fields (amount, date, vendor, etc.)
+  ocrConfidence      Float?
+  verificationChecks Json?          // individual checks performed & outcomes
+  warnings           Json?          // warning notes/flags
+  reviewerId         String?
+  reviewer           User?          @relation("DocumentReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+  reviewerNotes      String?
+  reviewedAt         DateTime?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  @@index([requestId])
+  @@index([fileHash])
+  @@index([status])
+  @@map("request_documents")
+}
+
+model Approval {
+  id         String         @id @default(uuid())
+  requestId  String
+  request    Request        @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  stepId     String
+  step       WorkflowStep   @relation(fields: [stepId], references: [id], onDelete: Restrict)
+  approverId String
+  approver   User           @relation("Approver", fields: [approverId], references: [id], onDelete: Restrict)
+  action     ApprovalAction
+  comment    String?
+  createdAt  DateTime       @default(now())
+
+  @@index([requestId])
+  @@index([approverId])
+  @@map("approvals")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  type      String   // "REQUEST_SUBMITTED", "APPROVAL_REQUIRED", "REQUEST_APPROVED", etc.
+  link      String?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([isRead])
+  @@map("notifications")
+}
+
+model Session {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation("UserSessions", fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation("UserAuditLogs", fields: [userId], references: [id], onDelete: SetNull)
+  requestId String?
+  request   Request? @relation("RequestAuditLogs", fields: [requestId], references: [id], onDelete: SetNull)
+  action    String
+  entity    String
+  entityId  String
+  details   Json?
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([userId])
+  @@index([requestId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
