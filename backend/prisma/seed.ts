@@ -444,6 +444,7 @@ async function main() {
   });
 
   console.log('Seed completed successfully!');
+  process.exit(0);
 }
 
 main()
