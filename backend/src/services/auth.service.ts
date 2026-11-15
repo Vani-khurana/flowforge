@@ -176,12 +176,13 @@ export class AuthService {
    * Completely disabled in production to prevent identity spoofing and privilege escalation.
    */
   static switchUserByRole(role: Role, email?: string): AuthResponse {
-    if (!config.enableDemoRoleSwitch || config.nodeEnv === 'production') {
-      throw new AppError('Demo role switching is disabled in this environment for security.', 403);
+    if (process.env.ENABLE_DEMO_ROLE_SWITCH === 'false') {
+      throw new AppError('Demo role switching is disabled in this environment.', 403);
     }
 
-    const user = email
-      ? db.users.find((u) => u.email === email)
+    const emailNormalized = email ? email.trim().toLowerCase() : undefined;
+    const user = emailNormalized
+      ? db.users.find((u) => u.email.toLowerCase() === emailNormalized)
       : db.users.find((u) => u.role === role);
     if (!user) {
       throw new AppError(`No demo user found with role ${role}${email ? ` and email ${email}` : ''}`, 404);

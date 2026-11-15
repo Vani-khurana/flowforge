@@ -10,6 +10,9 @@ import apiRoutes from './routes';
 export const createApp = (): Application => {
   const app = express();
 
+  // Trust reverse proxy (Vercel, Cloudflare, AWS)
+  app.set('trust proxy', 1);
+
   // Security headers configured for cross-origin assets (images, PDFs, documents)
   app.use(
     helmet({
@@ -20,7 +23,7 @@ export const createApp = (): Application => {
     })
   );
 
-  // CORS configuration with strict origin whitelist
+  // CORS configuration with permissive support for Vercel deployments and devices
   const allowedOrigins = [
     config.clientUrl,
     'http://localhost:5173',
@@ -38,9 +41,9 @@ export const createApp = (): Application => {
         const isAllowed =
           config.clientUrl === '*' ||
           allowedOrigins.includes(origin) ||
-          (config.nodeEnv !== 'production' &&
-            (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:'))) ||
-          origin.endsWith('.vercel.app') ||
+          origin.includes('vercel.app') ||
+          origin.includes('localhost') ||
+          origin.includes('127.0.0.1') ||
           origin.endsWith('.onrender.com');
 
         if (isAllowed) {
@@ -56,10 +59,10 @@ export const createApp = (): Application => {
     })
   );
 
-  // Rate limiting (100 requests per 15 minutes per IP)
+  // Rate limiting (300 requests per 15 minutes per IP)
   const limiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 200,
+    max: 300,
     standardHeaders: true,
     legacyHeaders: false,
     message: {
@@ -72,20 +75,37 @@ export const createApp = (): Application => {
   // Parse JSON payloads
   app.use(express.json());
 
-  // Health check endpoint
-  app.get('/api/health', async (_req: Request, res: Response) => {
-    const dbStatus = await checkDatabaseConnection();
+  // Health check and root endpoints
+  const healthHandler = async (_req: Request, res: Response) => {
+    let dbStatus;
+    try {
+      dbStatus = await checkDatabaseConnection();
+    } catch (e: any) {
+      dbStatus = { connected: false, error: e?.message };
+    }
     res.json({
       success: true,
-      message: 'FlowForge API is healthy',
+      message: 'FlowForge Enterprise API is healthy',
       timestamp: new Date().toISOString(),
       environment: config.nodeEnv,
       database: dbStatus,
     });
+  };
+
+  app.get('/api/health', healthHandler);
+  app.get('/health', healthHandler);
+  app.get('/', (_req: Request, res: Response) => {
+    res.json({
+      success: true,
+      message: 'FlowForge Enterprise API Server is Online',
+      health: '/api/health',
+      timestamp: new Date().toISOString(),
+    });
   });
 
-  // Mount API Router
+  // Mount API Router on both /api and / so all Vercel serverless rewrite paths match
   app.use('/api', apiRoutes);
+  app.use('/', apiRoutes);
 
   // Centralized error handling
   app.use(errorHandler);

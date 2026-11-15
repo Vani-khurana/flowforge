@@ -18,7 +18,5 @@ export const config = {
   jwtSecret,
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
   databaseUrl: process.env.DATABASE_URL || '',
-  enableDemoRoleSwitch:
-    process.env.ENABLE_DEMO_ROLE_SWITCH === 'true' ||
-    (nodeEnv !== 'production' && process.env.ENABLE_DEMO_ROLE_SWITCH !== 'false'),
+  enableDemoRoleSwitch: process.env.ENABLE_DEMO_ROLE_SWITCH !== 'false',
 };

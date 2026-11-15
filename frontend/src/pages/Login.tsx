@@ -28,13 +28,19 @@ export const Login: React.FC = () => {
     setIsSubmitting(true);
 
     try {
-      await login(email, password);
+      await login(email.trim().toLowerCase(), password);
       navigate('/');
     } catch (err: any) {
-      setError(
-        err.response?.data?.message ||
-          'Authentication failed. Please check your credentials.'
-      );
+      const serverMsg = err.response?.data?.message;
+      if (serverMsg) {
+        setError(serverMsg);
+      } else if (err.code === 'ECONNABORTED' || err.message?.toLowerCase().includes('timeout')) {
+        setError('Server cold start in progress. Please wait a moment and try again.');
+      } else if (!err.response && (err.message?.toLowerCase().includes('network') || err.message)) {
+        setError(`Unable to connect to FlowForge API server (${err.message}). Retrying...`);
+      } else {
+        setError('Authentication failed. Please check your credentials.');
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -49,10 +55,16 @@ export const Login: React.FC = () => {
     } catch (err: any) {
       // Fallback to password login
       try {
-        await login(userEmail, 'Password123!');
+        await login(userEmail.trim().toLowerCase(), 'Password123!');
         navigate('/');
       } catch (e: any) {
-        setError(e.response?.data?.message || 'Quick login failed');
+        const msg =
+          e.response?.data?.message ||
+          err.response?.data?.message ||
+          (e.message?.toLowerCase().includes('network')
+            ? 'Network error reaching backend server. Please verify connectivity.'
+            : 'Quick login failed');
+        setError(msg);
       }
     } finally {
       setIsSubmitting(false);
@@ -145,6 +157,9 @@ export const Login: React.FC = () => {
                 <input
                   type="email"
                   required
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck="false"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full pl-11 pr-4 py-2.5 bg-slate-900/80 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
@@ -162,6 +177,8 @@ export const Login: React.FC = () => {
                 <input
                   type="password"
                   required
+                  autoCapitalize="none"
+                  autoCorrect="off"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full pl-11 pr-4 py-2.5 bg-slate-900/80 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
