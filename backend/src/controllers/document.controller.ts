@@ -76,12 +76,12 @@ export class DocumentController {
     }
   };
 
-  static review = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  static review = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
       const { action, notes } = req.body as { action: 'VERIFY' | 'REJECT'; notes: string };
       const currentUser = req.user!;
-      const updated = DocumentVerificationService.manualReview(id, action, notes, currentUser);
+      const updated = await DocumentVerificationService.manualReview(id, action, notes, currentUser);
       res.json({ success: true, data: updated });
     } catch (err) {
       next(err);

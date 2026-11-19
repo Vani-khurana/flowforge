@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import {
   Department,
   User,
@@ -38,9 +39,50 @@ export class DataStore {
   constructor() {
     this.seed();
     this.loadFromDisk();
+    this.syncFromDb().catch(() => {});
+  }
+
+  public getPayload() {
+    return {
+      departments: this.departments,
+      users: this.users,
+      workflows: this.workflows,
+      workflowSteps: this.workflowSteps,
+      requests: this.requests,
+      documents: this.documents,
+      approvals: this.approvals,
+      notifications: this.notifications,
+      sessions: this.sessions,
+      auditLogs: this.auditLogs,
+    };
+  }
+
+  public applyPayload(data: any) {
+    if (!data || typeof data !== 'object') return;
+    if (Array.isArray(data.departments) && data.departments.length > 0) this.departments = data.departments;
+    if (Array.isArray(data.users) && data.users.length > 0) this.users = data.users;
+    if (Array.isArray(data.workflows) && data.workflows.length > 0) this.workflows = data.workflows;
+    if (Array.isArray(data.workflowSteps) && data.workflowSteps.length > 0) this.workflowSteps = data.workflowSteps;
+    if (Array.isArray(data.requests)) this.requests = data.requests;
+    if (Array.isArray(data.documents)) this.documents = data.documents;
+    if (Array.isArray(data.approvals)) this.approvals = data.approvals;
+    if (Array.isArray(data.notifications)) this.notifications = data.notifications;
+    if (Array.isArray(data.sessions)) this.sessions = data.sessions;
+    if (Array.isArray(data.auditLogs)) this.auditLogs = data.auditLogs;
   }
 
   private getPersistencePath(): string {
+    const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+    if (isServerless) {
+      const tmpDataDir = path.join(os.tmpdir(), 'flowforge_data');
+      if (!fs.existsSync(tmpDataDir)) {
+        try {
+          fs.mkdirSync(tmpDataDir, { recursive: true });
+        } catch {}
+      }
+      return path.join(tmpDataDir, 'store.json');
+    }
+
     const baseDir = path.resolve(__dirname, '..', '..');
     const candidates = [
       path.join(baseDir, 'data'),
@@ -59,21 +101,43 @@ export class DataStore {
   public save() {
     try {
       const filePath = this.getPersistencePath();
-      const payload = {
-        departments: this.departments,
-        users: this.users,
-        workflows: this.workflows,
-        workflowSteps: this.workflowSteps,
-        requests: this.requests,
-        documents: this.documents,
-        approvals: this.approvals,
-        notifications: this.notifications,
-        sessions: this.sessions,
-        auditLogs: this.auditLogs,
-      };
+      const payload = this.getPayload();
       fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), 'utf-8');
     } catch (err) {
-      console.error('[DataStore] Failed to save store to disk:', err);
+      // Local disk warning in serverless
+    }
+    // Asynchronously push to Neon cloud database
+    this.saveToDb().catch(() => {});
+  }
+
+  public async syncFromDb(): Promise<void> {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { prisma } = require('./prisma');
+      const rows: any[] = await prisma.$queryRawUnsafe(
+        `SELECT data FROM _app_state WHERE id = 'current_state' LIMIT 1`
+      );
+      if (rows && rows.length > 0 && rows[0].data) {
+        this.applyPayload(rows[0].data);
+      }
+    } catch (err) {
+      // Fallback to local memory/disk if DB is not reachable
+    }
+  }
+
+  public async saveToDb(): Promise<void> {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { prisma } = require('./prisma');
+      const payload = this.getPayload();
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO _app_state (id, data, updated_at) 
+         VALUES ('current_state', $1::jsonb, NOW())
+         ON CONFLICT (id) DO UPDATE SET data = $1::jsonb, updated_at = NOW()`,
+        JSON.stringify(payload)
+      );
+    } catch (err) {
+      // Fallback if DB error occurs
     }
   }
 

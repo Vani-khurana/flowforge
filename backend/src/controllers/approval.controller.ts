@@ -4,22 +4,22 @@ import { ApprovalService } from '../services/approval.service';
 import { ApprovalAction } from '../types';
 
 export class ApprovalController {
-  static getPending = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  static getPending = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const currentUser = req.user!;
-      const data = ApprovalService.getPendingApprovals(currentUser);
+      const data = await ApprovalService.getPendingApprovals(currentUser);
       res.json({ success: true, data });
     } catch (err) {
       next(err);
     }
   };
 
-  static decide = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  static decide = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
       const { action, comment } = req.body as { action: ApprovalAction; comment?: string };
       const currentUser = req.user!;
-      const data = ApprovalService.processAction(id, action, comment, currentUser);
+      const data = await ApprovalService.processAction(id, action, comment, currentUser);
       res.json({ success: true, data });
     } catch (err) {
       next(err);

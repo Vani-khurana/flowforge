@@ -3,11 +3,11 @@ import { AuthenticatedRequest } from '../middleware/auth';
 import { RequestService } from '../services/request.service';
 
 export class RequestController {
-  static list = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  static list = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const { page, limit, search, status, type, scope } = req.query;
       const currentUser = req.user!;
-      const data = RequestService.listRequests(
+      const data = await RequestService.listRequests(
         {
           page: page ? Number(page) : undefined,
           limit: limit ? Number(limit) : undefined,
@@ -24,40 +24,40 @@ export class RequestController {
     }
   };
 
-  static getById = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  static getById = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const currentUser = req.user!;
-      const data = RequestService.getRequestById(req.params.id, currentUser);
+      const data = await RequestService.getRequestById(req.params.id, currentUser);
       res.json({ success: true, data });
     } catch (err) {
       next(err);
     }
   };
 
-  static create = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  static create = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const currentUser = req.user!;
-      const data = RequestService.createRequest(req.body, currentUser);
+      const data = await RequestService.createRequest(req.body, currentUser);
       res.status(201).json({ success: true, data });
     } catch (err) {
       next(err);
     }
   };
 
-  static resubmit = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  static resubmit = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const currentUser = req.user!;
-      const data = RequestService.resubmitRequest(req.params.id, req.body, currentUser);
+      const data = await RequestService.resubmitRequest(req.params.id, req.body, currentUser);
       res.json({ success: true, data });
     } catch (err) {
       next(err);
     }
   };
 
-  static cancel = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  static cancel = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const currentUser = req.user!;
-      const data = RequestService.cancelRequest(req.params.id, currentUser);
+      const data = await RequestService.cancelRequest(req.params.id, currentUser);
       res.json({ success: true, data });
     } catch (err) {
       next(err);

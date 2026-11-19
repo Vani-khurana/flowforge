@@ -796,8 +796,8 @@ export class DocumentVerificationService {
     }
     request.documents.push(newDoc);
 
-    // Persist store to disk
-    db.save();
+    // Persist store to database and disk
+    await db.saveToDb();
 
     // Audit log
     AuditService.logAction(
@@ -840,12 +840,12 @@ export class DocumentVerificationService {
   /**
    * Human reviewer manual clearance or rejection with mandatory audit reason.
    */
-  static manualReview(
+  static async manualReview(
     documentId: string,
     action: 'VERIFY' | 'REJECT',
     notes: string,
     reviewer: User
-  ): RequestDocument {
+  ): Promise<RequestDocument> {
     const doc = db.documents.find((d) => d.id === documentId);
     if (!doc) {
       throw new AppError('Document not found', 404);
@@ -898,8 +898,8 @@ export class DocumentVerificationService {
       `/requests`
     );
 
-    // Persist store to disk
-    db.save();
+    // Persist store to database and disk
+    await db.saveToDb();
 
     return doc;
   }

@@ -16,7 +16,8 @@ interface ListRequestsParams {
 }
 
 export class RequestService {
-  static listRequests(params: ListRequestsParams, currentUser: User) {
+  static async listRequests(params: ListRequestsParams, currentUser: User) {
+    await db.syncFromDb();
     const page = Math.max(1, Number(params.page) || 1);
     const limit = Math.max(1, Math.min(100, Number(params.limit) || 10));
 
@@ -138,7 +139,8 @@ export class RequestService {
     };
   }
 
-  static getRequestById(id: string, currentUser?: User): RequestItem & { workflowDetails?: any } {
+  static async getRequestById(id: string, currentUser?: User): Promise<RequestItem & { workflowDetails?: any }> {
+    await db.syncFromDb();
     const req = db.requests.find((r) => r.id === id);
     if (!req) {
       throw new AppError('Request not found', 404);
@@ -163,7 +165,7 @@ export class RequestService {
     };
   }
 
-  static createRequest(
+  static async createRequest(
     payload: {
       type: string;
       title: string;
@@ -172,7 +174,8 @@ export class RequestService {
       workflowId?: string;
     },
     currentUser: User
-  ): RequestItem {
+  ): Promise<RequestItem> {
+    await db.syncFromDb();
     const now = new Date().toISOString();
     const typeUpper = payload.type.toUpperCase();
 
@@ -268,8 +271,8 @@ export class RequestService {
       }
     }
 
-    // Persist store to disk
-    db.save();
+    // Persist store to database and disk
+    await db.saveToDb();
 
     return newRequest;
   }
@@ -324,7 +327,7 @@ export class RequestService {
     return req;
   }
 
-  static resubmitRequest(
+  static async resubmitRequest(
     id: string,
     payload: {
       title?: string;
@@ -332,7 +335,8 @@ export class RequestService {
       data?: Record<string, any>;
     },
     currentUser: User
-  ): RequestItem {
+  ): Promise<RequestItem> {
+    await db.syncFromDb();
     const req = db.requests.find((r) => r.id === id);
     if (!req) {
       throw new AppError('Request not found', 404);
@@ -388,13 +392,14 @@ export class RequestService {
       }
     }
 
-    // Persist store to disk
-    db.save();
+    // Persist store to database and disk
+    await db.saveToDb();
 
     return req;
   }
 
-  static cancelRequest(id: string, currentUser: User): RequestItem {
+  static async cancelRequest(id: string, currentUser: User): Promise<RequestItem> {
+    await db.syncFromDb();
     const req = db.requests.find((r) => r.id === id);
     if (!req) {
       throw new AppError('Request not found', 404);
@@ -421,8 +426,8 @@ export class RequestService {
       { previousStatus: req.status }
     );
 
-    // Persist store to disk
-    db.save();
+    // Persist store to database and disk
+    await db.saveToDb();
 
     return req;
   }

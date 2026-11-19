@@ -3,10 +3,10 @@ import { AuthenticatedRequest } from '../middleware/auth';
 import { DashboardService } from '../services/dashboard.service';
 
 export class DashboardController {
-  static getStats = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  static getStats = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const currentUser = req.user!;
-      const data = DashboardService.getStats(currentUser);
+      const data = await DashboardService.getStats(currentUser);
       res.json({ success: true, data });
     } catch (err) {
       next(err);

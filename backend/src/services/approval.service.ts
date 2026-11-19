@@ -10,7 +10,8 @@ export class ApprovalService {
    * Return requests currently pending approval that the current user is legally authorized to decide.
    * Respects reporting hierarchy, verification gating, specific assignments, and no-self-approval.
    */
-  static getPendingApprovals(currentUser: User): RequestItem[] {
+  static async getPendingApprovals(currentUser: User): Promise<RequestItem[]> {
+    await db.syncFromDb();
     return db.requests
       .filter((request) => {
         if (request.status !== 'PENDING_APPROVAL') return false;
@@ -19,8 +20,12 @@ export class ApprovalService {
         const currentStep = db.workflowSteps.find((s) => s.id === request.currentStepId);
         if (!currentStep) return false;
 
-        const evaluation = HierarchyService.canUserApprove(currentUser, request, currentStep);
-        return evaluation.allowed;
+        // Requester cannot approve their own request
+        if (currentUser.id === request.requesterId) return false;
+
+        // Check if current user is an eligible approver for this step
+        const eligibleApprovers = HierarchyService.getEligibleApprovers(request, currentStep);
+        return eligibleApprovers.some((u) => u.id === currentUser.id);
       })
       .map((request) => ({
         ...request,
@@ -32,12 +37,13 @@ export class ApprovalService {
    * Process an approval action (APPROVED, REJECTED, RETURNED_FOR_CORRECTION)
    * with full concurrency validation, hierarchy verification, gating checks, and audit logging.
    */
-  static processAction(
+  static async processAction(
     requestId: string,
     action: ApprovalAction,
     comment: string | undefined,
     currentUser: User
-  ): { request: RequestItem; approval: Approval } {
+  ): Promise<{ request: RequestItem; approval: Approval }> {
+    await db.syncFromDb();
     const request = db.requests.find((r) => r.id === requestId);
     if (!request) {
       throw new AppError('Request not found', 404);
@@ -253,8 +259,8 @@ export class ApprovalService {
       }
     }
 
-    // Persist store to disk
-    db.save();
+    // Persist store to database and disk
+    await db.saveToDb();
 
     return { request, approval };
   }

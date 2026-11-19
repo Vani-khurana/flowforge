@@ -75,7 +75,8 @@ export class DashboardService {
     return items;
   }
 
-  static getStats(currentUser: User) {
+  static async getStats(currentUser: User) {
+    await db.syncFromDb();
     const scopedRequests = this.getScopedRequests(currentUser);
 
     const totalRequests = scopedRequests.length;
@@ -89,7 +90,7 @@ export class DashboardService {
     const rejectedRequests = scopedRequests.filter((r) => r.status === 'REJECTED').length;
 
     // Approvals queue size for current role using strict business logic
-    const pendingMyAction = ApprovalService.getPendingApprovals(currentUser).length;
+    const pendingMyAction = (await ApprovalService.getPendingApprovals(currentUser)).length;
     const pendingDocumentReviews = db.documents.filter(
       (d) => d.status === 'REVIEW_REQUIRED' || d.status === 'VERIFICATION_FAILED'
     ).length;

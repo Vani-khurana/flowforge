@@ -201,7 +201,10 @@ export const CreateRequestModal: React.FC<CreateRequestModalProps> = ({ isOpen, 
         resetForm();
         setSelectedFile(null);
         onClose();
-        queryClient.invalidateQueries();
+        queryClient.invalidateQueries({ queryKey: ['requests'] });
+        queryClient.invalidateQueries({ queryKey: ['pending-approvals'] });
+        queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+        queryClient.refetchQueries({ queryKey: ['requests'] });
       }
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Failed to submit request');
