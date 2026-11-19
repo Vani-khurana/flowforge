@@ -28,7 +28,13 @@ export const Requests: React.FC = () => {
   const [typeFilter, setTypeFilter] = useState('ALL');
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<RequestItem | null>(null);
-  const [activeScope, setActiveScope] = useState<'my' | 'role'>('my');
+  const [activeScope, setActiveScope] = useState<'my' | 'role'>(role === 'EMPLOYEE' ? 'my' : 'role');
+
+  // Automatically update view scope when persona / role is switched
+  React.useEffect(() => {
+    setActiveScope(role === 'EMPLOYEE' ? 'my' : 'role');
+    setPage(1);
+  }, [role]);
 
   const resolvedScope =
     activeScope === 'my'

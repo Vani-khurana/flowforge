@@ -5,6 +5,7 @@ import rateLimit from 'express-rate-limit';
 import { config } from './config/env';
 import { errorHandler, AppError } from './middleware/errorHandler';
 import { checkDatabaseConnection } from './db/prisma';
+import { db } from './db/store';
 import apiRoutes from './routes';
 
 export const createApp = (): Application => {
@@ -74,6 +75,14 @@ export const createApp = (): Application => {
 
   // Parse JSON payloads
   app.use(express.json());
+
+  // Synchronize cloud database state before routing API requests
+  app.use(async (_req: Request, _res: Response, next) => {
+    try {
+      await db.syncFromDb();
+    } catch {}
+    next();
+  });
 
   // Health check and root endpoints
   const healthHandler = async (_req: Request, res: Response) => {

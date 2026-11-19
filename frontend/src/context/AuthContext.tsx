@@ -66,6 +66,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(updatedUser);
         localStorage.setItem('flowforge_token', tokens.accessToken);
         localStorage.setItem('flowforge_user', JSON.stringify(updatedUser));
+        queryClient.clear();
         await queryClient.invalidateQueries();
       }
     } catch (err) {

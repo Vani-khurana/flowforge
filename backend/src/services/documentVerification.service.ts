@@ -727,6 +727,7 @@ export class DocumentVerificationService {
     documentType: string,
     currentUser: User
   ): Promise<RequestDocument> {
+    await db.syncFromDb();
     const request = db.requests.find((r) => r.id === requestId);
     if (!request) {
       throw new AppError('Associated request not found', 404);

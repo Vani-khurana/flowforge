@@ -129,6 +129,30 @@ export class DataStore {
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const { prisma } = require('./prisma');
+      // Safety guard: Merge any existing database requests so parallel serverless containers never overwrite new submissions
+      const rows: any[] = await prisma.$queryRawUnsafe(
+        `SELECT data FROM _app_state WHERE id = 'current_state' LIMIT 1`
+      );
+      if (rows && rows.length > 0 && rows[0].data) {
+        const dbData = rows[0].data;
+        if (Array.isArray(dbData.requests)) {
+          for (const dReq of dbData.requests) {
+            const existingIdx = this.requests.findIndex((r) => r.id === dReq.id);
+            if (existingIdx === -1) {
+              this.requests.push(dReq);
+            }
+          }
+        }
+        if (Array.isArray(dbData.documents)) {
+          for (const dDoc of dbData.documents) {
+            const existingIdx = this.documents.findIndex((d) => d.id === dDoc.id);
+            if (existingIdx === -1) {
+              this.documents.push(dDoc);
+            }
+          }
+        }
+      }
+
       const payload = this.getPayload();
       await prisma.$executeRawUnsafe(
         `INSERT INTO _app_state (id, data, updated_at) 
