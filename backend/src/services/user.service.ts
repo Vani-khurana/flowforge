@@ -1,4 +1,4 @@
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import { db } from '../db/store';
 import { Department, Role, User } from '../types';
 import { AppError } from '../middleware/errorHandler';
