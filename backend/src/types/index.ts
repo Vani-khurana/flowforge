@@ -95,6 +95,7 @@ export interface RequestDocument {
   reviewerName?: string | null;
   reviewerNotes?: string | null;
   reviewedAt?: string | null;
+  fileBase64?: string | null;
   createdAt: string;
   updatedAt: string;
 }

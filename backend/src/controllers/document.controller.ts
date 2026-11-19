@@ -1,6 +1,7 @@
 import { Response, NextFunction } from 'express';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { db } from '../db/store';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { DocumentVerificationService } from '../services/documentVerification.service';
@@ -110,8 +111,18 @@ export class DocumentController {
         doc = db.documents.find((d) => d.fileName === requestedFileName);
       }
 
+      // If document buffer is stored directly in memory/record, serve immediately
+      if (doc?.fileBase64) {
+        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Content-Type', doc.mimeType || 'application/octet-stream');
+        res.setHeader('Content-Disposition', `inline; filename="${doc.fileName}"`);
+        return res.send(Buffer.from(doc.fileBase64, 'base64'));
+      }
+
       const baseDir = path.resolve(__dirname, '..', '..');
       const searchDirs = [
+        path.join(os.tmpdir(), 'flowforge_uploads'),
         path.join(baseDir, 'uploads'),
         path.resolve(process.cwd(), 'uploads'),
         path.resolve(process.cwd(), 'backend', 'uploads'),

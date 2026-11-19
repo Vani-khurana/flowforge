@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { db } from '../db/store';
 import { DocumentStatus, RequestDocument, User } from '../types';
 import { AppError } from '../middleware/errorHandler';
@@ -74,20 +75,38 @@ export interface VerificationResult {
 
 export class DocumentVerificationService {
   /**
-   * Secure upload directory resolution.
+   * Secure upload directory resolution with serverless /tmp fallback.
    */
   static getUploadDir(): string {
+    const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+    if (isServerless) {
+      const tmpUploads = path.join(os.tmpdir(), 'flowforge_uploads');
+      if (!fs.existsSync(tmpUploads)) {
+        try {
+          fs.mkdirSync(tmpUploads, { recursive: true });
+        } catch {}
+      }
+      return tmpUploads;
+    }
+
     const baseDir = path.resolve(__dirname, '..', '..');
     const candidates = [
       path.join(baseDir, 'uploads'),
       path.resolve(process.cwd(), 'backend', 'uploads'),
       path.resolve(process.cwd(), 'uploads'),
     ];
-    const uploadDir = candidates.find((d) => fs.existsSync(d)) || candidates[0];
-    if (!fs.existsSync(uploadDir)) {
+    let uploadDir = candidates.find((d) => fs.existsSync(d));
+    if (!uploadDir) {
+      uploadDir = candidates[0];
       try {
         fs.mkdirSync(uploadDir, { recursive: true });
-      } catch {}
+      } catch {
+        const tmpFallback = path.join(os.tmpdir(), 'flowforge_uploads');
+        try {
+          fs.mkdirSync(tmpFallback, { recursive: true });
+        } catch {}
+        return tmpFallback;
+      }
     }
     return uploadDir;
   }
@@ -464,11 +483,13 @@ export class DocumentVerificationService {
     const artworkRegex = /(anime|manga|illustration|illust|wallpaper|digital[-_]?art|art|fanart|drawing|sketch|character|render|avatar|meme|selfie|portrait|landscape|waifu|genshin|naruto|rain|cat[-_]?chill|uhdpaper|artstation|pixiv|deviantart|midjourney|dall[-_]?e|stable[-_]?diffusion|novelai|civitai|pokemon|game|comic)/i;
     const isArtworkFilename = artworkRegex.test(fileName);
     const bufferSample = buffer.subarray(0, Math.min(buffer.length, 131072)).toString('latin1');
-    const hasGraphicToolMarkers = /(adobe\s+photoshop|photoshop|illustrator|clip\s+studio|novelai|stable\s+diffusion|civitai|midjourney|dall[-_]?e|comfyui|procreate|aseprite|parameters[:=]|sampler:)/i.test(bufferSample);
+    const hasSyntheticGenerators = /(novelai|stable\s+diffusion|civitai|midjourney|dall[-_]?e|comfyui|parameters[:=]|sampler:|negative\s+prompt)/i.test(bufferSample);
+    const hasGraphicToolMarkers = /(adobe\s+photoshop|photoshop|illustrator|clip\s+studio|procreate|aseprite)/i.test(bufferSample);
 
-    // Deep text tampering inspection: Check extracted text for explicit image editing software or synthetic markers
-    const tamperingTextRegex = /(adobe\s+photoshop|photoshop|illustrator|procreate|canva|gimp|clip\s+studio|modified\s+using|edited\s+with|tampered|fake|sample\s+only|template\s+only|specimen|watermark|ai\s+generated|synthetic|midjourney|stable\s+diffusion|dall[-_]?e|novelai|civitai)/i;
-    const tamperingMatch = rawText.match(tamperingTextRegex);
+    // Deep text tampering inspection on genuine OCR text (excludes raw binary noise and legitimate security watermarks)
+    const isTrueOcrText = extractionMethod === 'PDF_TEXT_PARSER' || extractionMethod === 'TESSERACT_OCR';
+    const tamperingTextRegex = /(adobe\s+photoshop|photoshop|illustrator|modified\s+using\s+photoshop|edited\s+with\s+photoshop|digitally\s+altered|tampered\s+document|fake\s+certificate|fake\s+invoice|sample\s+only|specimen\s+only|template\s+only|ai\s+generated\s+document|synthetic\s+document|midjourney|stable\s+diffusion|dall[-_]?e|novelai)/i;
+    const tamperingMatch = isTrueOcrText ? rawText.match(tamperingTextRegex) : null;
     const isScreenshot = /(screenshot|screen[-_]?capture|snip|screen[-_]?shot)/i.test(fileName);
 
     if (tamperingMatch) {
@@ -481,14 +502,22 @@ export class DocumentVerificationService {
         status: 'FLAGGED',
         message: `Extracted content includes image-editing software or synthetic disclaimer ("${tamperingMatch[0]}"). Classified as low authenticity.`,
       });
-    } else if (isArtworkFilename || hasGraphicToolMarkers) {
+    } else if (isArtworkFilename || hasSyntheticGenerators) {
       checks.aiGeneratedOrArtwork = true;
       checks.isOfficialDocument = false;
-      warnings.push('Document metadata contains signatures of digital artwork or graphic software origins.');
+      warnings.push('Document metadata contains signatures of generative AI or digital artwork.');
       explanations.push({
         check: 'Document Format & Media Classification',
         status: 'REQUIRES_HUMAN_REVIEW',
-        message: 'File metadata suggests digital artwork or graphic software origin rather than a standard fiscal scan. Routed for human verification.',
+        message: 'File metadata suggests digital artwork or generative AI synthesis rather than a standard fiscal scan. Routed for human verification.',
+      });
+    } else if (hasGraphicToolMarkers) {
+      // Standard graphic scanner or editing tool metadata (e.g. Photoshop scanner)
+      // Requires human review if requested, but NOT classified as AI fake/artwork
+      explanations.push({
+        check: 'Graphic Environment Metadata',
+        status: 'REQUIRES_HUMAN_REVIEW',
+        message: 'File was processed or saved using graphic imaging software. Approver verification recommended.',
       });
     }
 
@@ -714,11 +743,15 @@ export class DocumentVerificationService {
       request.data || {}
     );
 
-    // Save file to disk
+    // Save file to disk with safe serverless fallback
     const uploadDir = this.getUploadDir();
     const safeFilename = `${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
     const filePath = path.join(uploadDir, safeFilename);
-    fs.writeFileSync(filePath, file.buffer);
+    try {
+      fs.writeFileSync(filePath, file.buffer);
+    } catch (writeErr) {
+      console.warn('[DocumentVerification] Serverless local disk write skipped:', writeErr);
+    }
 
     const now = new Date().toISOString();
     const docId = `doc-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
@@ -733,6 +766,7 @@ export class DocumentVerificationService {
       fileSize: file.size,
       mimeType: file.mimetype,
       fileHash,
+      fileBase64: file.buffer.toString('base64'),
       documentType: documentType || 'RECEIPT',
       status: verification.status,
       ocrConfidence: verification.confidence,
